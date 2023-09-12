@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:background_location/background_location.dart' as backLocation;
 import 'dart:math';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/cupertino.dart';
@@ -10,13 +9,12 @@ import 'package:location/location.dart' as loca;
 import 'package:geolocator/geolocator.dart';
 //import 'package:geolocator_apple/geolocator_apple.dart';
 import 'package:geolocator_android/geolocator_android.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:workmanager/workmanager.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
+
+//dasdaddaadas
 
 void main() {
   runApp(MyApp());
@@ -137,19 +135,6 @@ class _LocationScreenState extends State<LocationScreen> {
         });
       });
     });
-  }
-
-  void closeLocation() {
-    if (positionStream2 != null) {
-      positionStream2!.cancel();
-
-      _locationController.close();
-
-      positionStream2 = null;
-      print('yes');
-    } else {
-      print('no');
-    }
   }
 
   // Function to calculate the distance between two points using the haversine formula
