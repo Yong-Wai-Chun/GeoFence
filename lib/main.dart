@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:background_location/background_location.dart' as backLocation;
@@ -5,8 +7,20 @@ import 'dart:math';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:location/location.dart' as loca;
+import 'package:geolocator/geolocator.dart';
+//import 'package:geolocator_apple/geolocator_apple.dart';
+import 'package:geolocator_android/geolocator_android.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:workmanager/workmanager.dart';
 
-void main() => runApp(MyApp());
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+void main() {
+  runApp(MyApp());
+}
 
 class MyApp extends StatelessWidget {
   @override
@@ -23,206 +37,51 @@ class LocationScreen extends StatefulWidget {
 }
 
 class _LocationScreenState extends State<LocationScreen> {
-  String locationUpdateText = '';
+  UserLocation? userLocation;
+  Position? _currentLocation;
+  int regionRadius = 60;
+  double regionLatitude = 3.1069;
+  double regionLongitude = 101.4678;
   String regionStatus = 'Outside the region';
-  double regionLatitude = 0.0;
-  double regionLongitude = 0.0;
-  double currentLatitude = 0.0;
-  double currentLongitude = 0.0;
-  double regionRadius = 60.0; // in meters
-  double _distance = 0;
-  int _interval = 0;
-  double? clockedLat = 0.0;
-  double? clockedLon = 0.0;
-  var locationStat = '';
-  loca.Location location = loca.Location();
+  String clockStatus = "Out";
+  var clockedLatitude;
+  var clockedLongitude;
 
-  var items = [
-    'Walking',
-    'Driving',
-    'Running',
-    'Motorcycle',
-    'Customize',
-  ];
-  String dropdownvalue = 'Customize';
+  Geolocator geolocator = Geolocator();
+  StreamSubscription<Position>? positionStream;
+  StreamSubscription<Position>? positionStream2;
 
-  TextEditingController regionLatController = TextEditingController();
-  TextEditingController regionLonController = TextEditingController();
-  TextEditingController _intervalController = TextEditingController();
-  TextEditingController _distanceController = TextEditingController();
+  StreamController<UserLocation> _locationController =
+      StreamController<UserLocation>();
+  Stream<UserLocation> get locationStream => _locationController.stream;
+  late LocationSettings locationSettings;
 
   @override
   void initState() {
     super.initState();
-    locationPermission(0);
-    initLocation();
+    locationPermission();
   }
 
-  Future<void> initLocation() async {
-    backLocation.BackgroundLocation.getLocationUpdates((location) {
-      setState(() {
-        currentLatitude = location.latitude!;
-        currentLongitude = location.longitude!;
-        locationUpdateText =
-            'Background location update: $currentLatitude, $currentLongitude';
-        double distance = calculateDistance(
-            currentLatitude, currentLongitude, regionLatitude, regionLongitude);
-        if (distance <= regionRadius) {
-          regionStatus = 'Inside the region';
-        } else {
-          regionStatus = 'Outside the region';
-        }
-      });
-    });
-
-    // Configure location settings
-    backLocation.BackgroundLocation.startLocationService(
-      distanceFilter: 10, // meters
-    );
-  }
-
-  // Function to calculate the distance between two points using the haversine formula
-  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const R = 6371000; // Earth's radius in meters
-    double phi1 = lat1 * pi / 180;
-    double phi2 = lat2 * pi / 180;
-    double deltaPhi = (lat2 - lat1) * pi / 180;
-    double deltaLambda = (lon2 - lon1) * pi / 180;
-
-    double a = sin(deltaPhi / 2) * sin(deltaPhi / 2) +
-        cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-
-    return R * c;
-  }
-
-  showAlertDialogBox(BuildContext context) {
-    // set up the button
-    Widget okButton = TextButton(
-      child: Text("OK"),
-      onPressed: () {},
-    );
-
-    // set up the AlertDialog
-    AlertDialog alert = AlertDialog(
-      title: Text("Location Permission"),
-      content: Text('''
-          SQL HRMS wants to use your location to remind you to clock on time, and more.
-          
-          When prompted, please tap "Allow in Settings", then select the "Allow all the time" option
-        '''),
-      actions: [
-        okButton,
-      ],
-    );
-
-    // show the dialog
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return alert;
-      },
-    );
-  }
-
-  void updateActivity(String activity) {
-    setState(() {
-      dropdownvalue = activity;
-      switch (dropdownvalue) {
-        case 'Walking':
-          _interval = 5000;
-          _distance = 10;
-          break;
-        case 'Running':
-          _interval = 3000;
-          _distance = 20;
-          break;
-        case 'Driving':
-          _interval = 10000;
-          _distance = 50;
-          break;
-        case 'Motorcycle':
-          _interval = 8000;
-          _distance = 35;
-          break;
-        default:
-          _interval = 5000;
-          _distance = 10;
-      }
-    });
-  }
-
-  void locationPermission(int a) async {
-    print('hello');
+  void locationPermission() async {
     var status = await Permission.location.status;
     if (status.isDenied) {
-      print('Access Denied');
       showAlertDialog(context);
-      //showAlertDialogBox(context);
-      setState(() {
-        locationStat = 'Permission Not Granted';
-      });
     } else {
-      locationToggle(a);
-    }
-  }
-
-  void locationToggle(int b) async {
-    loca.Location location = new loca.Location();
-    bool _serviceEnabled;
-    await backLocation.BackgroundLocation.startLocationService(
-        distanceFilter: 20);
-    _serviceEnabled = await location.serviceEnabled();
-    if (!_serviceEnabled) {
-      _serviceEnabled = await location.requestService();
-      backLocation.BackgroundLocation.stopLocationService();
-      if (!_serviceEnabled) {
-        setState(() {
-          locationStat = 'Location Denied';
-        });
-      } else {
-        await backLocation.BackgroundLocation.setAndroidNotification(
-          title: 'Background service is running',
-          message: 'Background location in progress',
-          icon: '@mipmap/ic_launcher',
-        );
-        loca.LocationData currentPosition = await location.getLocation();
-        loca.LocationAccuracy desiredAccuracy = loca.LocationAccuracy.high;
-        location.changeSettings(
-          accuracy: desiredAccuracy,
-          interval: _interval, // Location update interval in milliseconds
-          distanceFilter:
-              _distance, // Minimum distance to trigger location updates in meters
-        );
-        setState(() {
-          locationStat = 'Location Enabled';
-          if (b == 1) {
-            clockedLat = currentPosition.latitude;
-            clockedLon = currentPosition.longitude;
-          }
-        });
-      } //);
-    } else {
-      await backLocation.BackgroundLocation.setAndroidNotification(
-        title: 'Background service is running',
-        message: 'Background location in progress',
-        icon: '@mipmap/ic_launcher',
-      );
-      loca.LocationData currentPosition = await location.getLocation();
-      loca.LocationAccuracy desiredAccuracy = loca.LocationAccuracy.high;
-      location.changeSettings(
-        accuracy: desiredAccuracy,
-        interval: _interval, // Location update interval in milliseconds
-        distanceFilter:
-            _distance, // Minimum distance to trigger location updates in meters
-      );
-      setState(() {
-        locationStat = 'Location Enabled';
-        if (b == 1) {
-          clockedLat = currentPosition.latitude;
-          clockedLon = currentPosition.longitude;
-        }
-      });
+      locationSettings = AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+          forceLocationManager: true,
+          intervalDuration: const Duration(seconds: 5),
+          //(Optional) Set foreground notification config to keep the app alive
+          //when going to the background
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationText: "This app will continue to receive your location",
+            notificationTitle: "Running in Background",
+            enableWakeLock: true,
+          ));
+      Noti.initialize(flutterLocalNotificationsPlugin);
+      LocationServices(locationSettings);
+      //closeLocation();
     }
   }
 
@@ -246,9 +105,161 @@ class _LocationScreenState extends State<LocationScreen> {
         ),
       );
 
+  void LocationServices(locationSettings) {
+    setState(() {
+      positionStream2 =
+          Geolocator.getPositionStream(locationSettings: locationSettings)
+              .listen((location) {
+        _locationController
+            .add(UserLocation(location.latitude, location.longitude));
+        print('B: ${location.latitude},${location.longitude}');
+
+        double distance = calculateDistance(location!.latitude,
+            location!.longitude, regionLatitude, regionLongitude);
+        setState(() {
+          if (distance <= regionRadius) {
+            regionStatus = 'Inside the region';
+            if (clockStatus == 'Out') {
+              Noti.showBigTextNotification(
+                  title: "Clock In & Out Reminder",
+                  body: "Remember to Clock In",
+                  fln: flutterLocalNotificationsPlugin);
+            }
+          } else {
+            regionStatus = 'Outside the region';
+            if (clockStatus == 'In') {
+              Noti.showBigTextNotification(
+                  title: "Clock In & Out Reminder",
+                  body: "Remember to Clock Out",
+                  fln: flutterLocalNotificationsPlugin);
+            }
+          }
+        });
+      });
+    });
+  }
+
+  void closeLocation() {
+    if (positionStream2 != null) {
+      positionStream2!.cancel();
+
+      _locationController.close();
+
+      positionStream2 = null;
+      print('yes');
+    } else {
+      print('no');
+    }
+  }
+
+  // Function to calculate the distance between two points using the haversine formula
+  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const R = 6371000; // Earth's radius in meters
+    double phi1 = lat1 * pi / 180;
+    double phi2 = lat2 * pi / 180;
+    double deltaPhi = (lat2 - lat1) * pi / 180;
+    double deltaLambda = (lon2 - lon1) * pi / 180;
+
+    double a = sin(deltaPhi / 2) * sin(deltaPhi / 2) +
+        cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return R * c;
+  }
+
+  Future<UserLocation> getCurrentLocation() async {
+    try {
+      loca.Location location = new loca.Location();
+      var isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+
+      if (!isServiceEnabled) {
+        isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!isServiceEnabled) {
+          isServiceEnabled = await location.requestService();
+          throw Exception("The Location service is disabled!");
+        }
+      }
+
+      var isPermission = await Geolocator.checkPermission();
+      if (isPermission == LocationPermission.denied ||
+          isPermission == LocationPermission.deniedForever) {
+        isPermission = await Geolocator.requestPermission();
+      }
+      if (isPermission == LocationPermission.denied ||
+          isPermission == LocationPermission.deniedForever) {
+        throw Exception("Location Permission requests has been denied!");
+      }
+
+      if (isServiceEnabled &&
+          (isPermission == LocationPermission.always ||
+              isPermission == LocationPermission.whileInUse)) {
+        _currentLocation = await Geolocator.getCurrentPosition().timeout(
+          Duration(seconds: 10),
+          onTimeout: () {
+            throw TimeoutException(
+                "Location information could not be obtained within the requested time.");
+          },
+        );
+
+        //closeLocation();
+        if (clockStatus == "Out") {
+          userLocation = UserLocation(
+              _currentLocation!.latitude, _currentLocation!.longitude);
+
+          setState(() {
+            clockedLatitude = userLocation!.latitude;
+            clockedLongitude = userLocation!.longitude;
+          });
+
+          if (positionStream2 != null) {
+            positionStream2!.cancel();
+          }
+
+          setState(() {
+            locationSettings = AndroidSettings(
+                accuracy: LocationAccuracy.high,
+                distanceFilter: 100,
+                forceLocationManager: true,
+                intervalDuration: const Duration(seconds: 10),
+                //(Optional) Set foreground notification config to keep the app alive
+                //when going to the background
+                foregroundNotificationConfig:
+                    const ForegroundNotificationConfig(
+                  notificationText:
+                      "This app will continue to receive your location",
+                  notificationTitle: "Running in Background",
+                  enableWakeLock: true,
+                ));
+
+            LocationServices(locationSettings);
+          });
+
+          setState(() {
+            clockStatus = "In";
+          });
+        } else {
+          setState(() {
+            clockedLatitude = null;
+            clockedLongitude = null;
+            clockStatus = "Out";
+          });
+        }
+
+        return userLocation!;
+      } else {
+        throw Exception("Location Service requests has been denied!");
+      }
+    } on TimeoutException catch (_) {
+      print(_);
+      throw _;
+    } catch (e) {
+      print(e);
+      throw e;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    print('run');
     return Scaffold(
       appBar: AppBar(
         title: Text('Background Location and Region Tracking'),
@@ -258,114 +269,6 @@ class _LocationScreenState extends State<LocationScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(locationUpdateText),
-            SizedBox(height: 20),
-            TextField(
-              controller: regionLatController,
-              onChanged: (text) {
-                setState(() {
-                  regionLatitude = double.parse(text.replaceAll(',', ''));
-                  double distance = calculateDistance(currentLatitude,
-                      currentLongitude, regionLatitude, regionLongitude);
-                  if (distance <= regionRadius) {
-                    regionStatus = 'Inside the region';
-                  } else {
-                    regionStatus = 'Outside the region';
-                  }
-                });
-              },
-              decoration: InputDecoration(labelText: "Enter Region Latitude"),
-              keyboardType:
-                  TextInputType.numberWithOptions(signed: true, decimal: true),
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(
-                    r'^-?\d*\.?\d*')), // Allow negative and decimal input
-              ],
-            ),
-            TextField(
-              controller: regionLonController,
-              onChanged: (text) {
-                setState(() {
-                  regionLongitude = double.parse(text.replaceAll(',', ''));
-                  double distance = calculateDistance(currentLatitude,
-                      currentLongitude, regionLatitude, regionLongitude);
-                  if (distance <= regionRadius) {
-                    regionStatus = 'Inside the region';
-                  } else {
-                    regionStatus = 'Outside the region';
-                  }
-                });
-              },
-              decoration: InputDecoration(labelText: "Enter Region Longitude"),
-              keyboardType:
-                  TextInputType.numberWithOptions(signed: true, decimal: true),
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(
-                    r'^-?\d*\.?\d*')), // Allow negative and decimal input
-              ],
-            ),
-            SizedBox(height: 10),
-            Text('Region Status: $regionStatus'),
-            DropdownButton<String>(
-              // Initial Value
-              value: dropdownvalue,
-
-              // Down Arrow Icon
-              icon: const Icon(Icons.keyboard_arrow_down),
-
-              // Array list of items
-              items: items.map((String items) {
-                return DropdownMenuItem(
-                  value: items,
-                  child: Text(items),
-                );
-              }).toList(),
-              // After selecting the desired option,it will
-              // change button value to selected value
-              onChanged: (String? newValue) {
-                setState(() {
-                  dropdownvalue = newValue!;
-                });
-              },
-            ),
-            TextField(
-              controller: _intervalController,
-              decoration: InputDecoration(
-                  hintText: 'Interval',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      _intervalController.clear();
-                    },
-                    icon: const Icon(Icons.clear),
-                  )),
-            ),
-            TextField(
-              controller: _distanceController,
-              decoration: InputDecoration(
-                  hintText: 'Distance',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      _distanceController.clear();
-                    },
-                    icon: const Icon(Icons.clear),
-                  )),
-            ),
-            MaterialButton(
-              onPressed: () {
-                if (dropdownvalue == 'Customize') {
-                  setState(() {
-                    _interval =
-                        int.parse(_intervalController.text.replaceAll(',', ''));
-                    _distance = double.parse(
-                        _distanceController.text.replaceAll(',', ''));
-                  });
-                }
-              },
-              color: Colors.blue,
-              child: Text('Submit', style: TextStyle(color: Colors.white)),
-            ),
             MaterialButton(
                 height: 60,
                 minWidth: 200,
@@ -375,26 +278,58 @@ class _LocationScreenState extends State<LocationScreen> {
                 ),
                 color: const Color(0xff1D1E22),
                 onPressed: () {
-                  locationPermission(1);
+                  //closeLocation();
+                  getCurrentLocation();
                 }),
-            Text('Location Status:',
-                style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 28.0,
-                    letterSpacing: 2.0,
-                    fontWeight: FontWeight.bold)),
-            Text(locationStat,
-                style: TextStyle(
-                    color: Colors.black, fontSize: 18.0, letterSpacing: 1.0)),
-            Text('Latitude: ' + clockedLat.toString(),
-                style: TextStyle(
-                    color: Colors.black, fontSize: 18.0, letterSpacing: 1.0)),
-            Text('Longitude: ' + clockedLon.toString(),
-                style: TextStyle(
-                    color: Colors.black, fontSize: 18.0, letterSpacing: 1.0)),
+            Text('Region Status: $regionStatus'),
+            Text('Clocked In Latitude: ' + clockedLatitude.toString()),
+            Text('Clocked In Longitude: ' + clockedLongitude.toString()),
+            Text('Status: Clock $clockStatus'),
           ],
         ),
       ),
     );
+  }
+}
+
+class UserLocation {
+  final double latitude;
+  final double longitude;
+
+  UserLocation(this.latitude, this.longitude);
+}
+
+class Noti {
+  static Future initialize(
+      FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin) async {
+    var androidInitialize =
+        new AndroidInitializationSettings('mipmap/ic_launcher');
+    //var iOSInitialize = IOSInitializationSettings();
+    var initializationsSettings = new InitializationSettings(
+        android: androidInitialize); //, iOS: iOSInitialize);
+    await flutterLocalNotificationsPlugin.initialize(initializationsSettings);
+  }
+
+  static Future showBigTextNotification(
+      {var id = 0,
+      required String title,
+      required String body,
+      var payload,
+      required FlutterLocalNotificationsPlugin fln}) async {
+    AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'clock_reminder1',
+      'channel_name',
+      playSound: true,
+      //sound: RawResourceAndroidNotificationSound('notification'),
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+
+    var not = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      //iOS: IOSNotificationDetails());
+    );
+    await fln.show(0, title, body, not);
   }
 }

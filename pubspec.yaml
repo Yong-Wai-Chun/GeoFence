@@ -39,6 +39,11 @@ dependencies:
   permission_handler: ^10.2.0
   background_location: ^0.11.8
   quantity_input: ^1.0.2
+  geolocator: ^10.0.0
+  workmanager: ^0.5.1
+  flutter_background_service: ^5.0.1
+  flutter_background_service_android: ^6.0.1
+  flutter_local_notifications: ^15.1.1
   #geofence: ^1.0.3
 
 dev_dependencies:
