@@ -37,13 +37,19 @@ class LocationScreen extends StatefulWidget {
 class _LocationScreenState extends State<LocationScreen> {
   UserLocation? userLocation;
   Position? _currentLocation;
-  int regionRadius = 60;
-  double regionLatitude = 3.1069;
-  double regionLongitude = 101.4678;
-  String regionStatus = 'Outside the region';
+  //int regionRadius = 60;
+  //double regionLatitude = 3.1069;
+  //double regionLongitude = 101.4678;
+  String regionStatus = '';
   String clockStatus = "Out";
+  String ismock = "";
   var clockedLatitude;
   var clockedLongitude;
+  List<RegionLocation> regions = [
+    RegionLocation(3.1069, 101.4678, 60),
+    RegionLocation(3.1095, 101.4602, 60),
+    RegionLocation(3.0646, 101.4839, 100),
+  ];
 
   Geolocator geolocator = Geolocator();
   StreamSubscription<Position>? positionStream;
@@ -62,24 +68,43 @@ class _LocationScreenState extends State<LocationScreen> {
 
   void locationPermission() async {
     var status = await Permission.location.status;
-    if (status.isDenied) {
-      showAlertDialog(context);
+
+    loca.Location location = new loca.Location();
+    var isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!isServiceEnabled) {
+      //isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+      isServiceEnabled = await location.requestService();
+      if (!isServiceEnabled) {
+        //isServiceEnabled = await location.requestService();
+        ReasonDialog(context);
+        //throw Exception("The Location service is disabled!");
+      }
     } else {
-      locationSettings = AndroidSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10,
-          forceLocationManager: true,
-          intervalDuration: const Duration(seconds: 5),
-          //(Optional) Set foreground notification config to keep the app alive
-          //when going to the background
-          foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationText: "This app will continue to receive your location",
-            notificationTitle: "Running in Background",
-            enableWakeLock: true,
-          ));
-      Noti.initialize(flutterLocalNotificationsPlugin);
-      LocationServices(locationSettings);
-      //closeLocation();
+      if (status.isDenied) {
+        showAlertDialog(context);
+      } else {
+        _currentLocation = await Geolocator.getCurrentPosition().timeout(
+          Duration(seconds: 10),
+        );
+
+        locationSettings = AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10,
+            forceLocationManager: true,
+            intervalDuration: const Duration(seconds: 5),
+            //(Optional) Set foreground notification config to keep the app alive
+            //when going to the background
+            foregroundNotificationConfig: const ForegroundNotificationConfig(
+              notificationText:
+                  "This app will continue to receive your location",
+              notificationTitle: "Running in Background",
+              enableWakeLock: true,
+            ));
+        Noti.initialize(flutterLocalNotificationsPlugin);
+        LocationServices(locationSettings);
+        //closeLocation();
+      }
     }
   }
 
@@ -87,21 +112,53 @@ class _LocationScreenState extends State<LocationScreen> {
         context: context,
         barrierDismissible: false,
         builder: (BuildContext context) => CupertinoAlertDialog(
-          title: const Text('Permission Denied'),
-          content: const Text('Allow access to your location'),
+          title: const Text('Location Permission'),
+          content: const Text(
+              'SQL HRMS requires access to location to work\n\nTo get clocking location and more - SQL HRMS needs to access your location. \n\n In the App info page, please:\n\n* Tap "Permissions"\n* Tap "Location"\n * Select "Allow all the time" and return to app.'),
           actions: <CupertinoDialogAction>[
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
+            // CupertinoDialogAction(
+            //   onPressed: () => Navigator.of(context).pop(),
+            //   child: const Text('Cancel'),
+            // ),
             CupertinoDialogAction(
               isDefaultAction: true,
-              onPressed: () => openAppSettings(),
-              child: const Text('Settings'),
+              onPressed: () {
+                openAppSettings();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Ok'),
             ),
           ],
         ),
       );
+
+  ReasonDialog(BuildContext context) {
+    // set up the button
+    Widget okButton = TextButton(
+      child: Text("OK"),
+      onPressed: () {
+        Navigator.of(context).pop();
+      },
+    );
+
+    // set up the AlertDialog
+    AlertDialog alert = AlertDialog(
+      title: Text("GPS Service"),
+      content: Text(
+          "This application requires access to location\n\nPlease turn on your GPS to give access to your location"),
+      actions: [
+        okButton,
+      ],
+    );
+
+    // show the dialog
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return alert;
+      },
+    );
+  }
 
   void LocationServices(locationSettings) {
     setState(() {
@@ -112,24 +169,38 @@ class _LocationScreenState extends State<LocationScreen> {
             .add(UserLocation(location.latitude, location.longitude));
         print('B: ${location.latitude},${location.longitude}');
 
-        double distance = calculateDistance(location!.latitude,
-            location!.longitude, regionLatitude, regionLongitude);
         setState(() {
-          if (distance <= regionRadius) {
-            regionStatus = 'Inside the region';
-            if (clockStatus == 'Out') {
+          for (var reg in regions) {
+            double distance = calculateDistance(location!.latitude,
+                location!.longitude, reg.regionLatitude, reg.regionLongitude);
+
+            if (_currentLocation!.isMocked == true) {
+              ismock = "Yes";
+              regionStatus = 'Please Enable Your Real Location.';
               Noti.showBigTextNotification(
-                  title: "Clock In & Out Reminder",
-                  body: "Remember to Clock In",
+                  title: "FAKE LOCATION DETECTED",
+                  body: "Please Close Your Augmented Location",
                   fln: flutterLocalNotificationsPlugin);
-            }
-          } else {
-            regionStatus = 'Outside the region';
-            if (clockStatus == 'In') {
-              Noti.showBigTextNotification(
-                  title: "Clock In & Out Reminder",
-                  body: "Remember to Clock Out",
-                  fln: flutterLocalNotificationsPlugin);
+            } else {
+              ismock = "No";
+              if (distance <= reg.regionRadius) {
+                regionStatus = 'Inside the region';
+                if (clockStatus == 'Out') {
+                  Noti.showBigTextNotification(
+                      title: "Clock In & Out Reminder",
+                      body: "Remember to Clock In",
+                      fln: flutterLocalNotificationsPlugin);
+                }
+                break;
+              } else {
+                regionStatus = 'Outside the region';
+                if (clockStatus == 'In') {
+                  Noti.showBigTextNotification(
+                      title: "Clock In & Out Reminder",
+                      body: "Remember to Clock Out",
+                      fln: flutterLocalNotificationsPlugin);
+                }
+              }
             }
           }
         });
@@ -158,9 +229,11 @@ class _LocationScreenState extends State<LocationScreen> {
       var isServiceEnabled = await Geolocator.isLocationServiceEnabled();
 
       if (!isServiceEnabled) {
-        isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+        //isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+        isServiceEnabled = await location.requestService();
         if (!isServiceEnabled) {
-          isServiceEnabled = await location.requestService();
+          //isServiceEnabled = await location.requestService();
+          ReasonDialog(context);
           throw Exception("The Location service is disabled!");
         }
       }
@@ -168,6 +241,7 @@ class _LocationScreenState extends State<LocationScreen> {
       var isPermission = await Geolocator.checkPermission();
       if (isPermission == LocationPermission.denied ||
           isPermission == LocationPermission.deniedForever) {
+        // request permission on the spot
         isPermission = await Geolocator.requestPermission();
       }
       if (isPermission == LocationPermission.denied ||
@@ -196,6 +270,7 @@ class _LocationScreenState extends State<LocationScreen> {
             clockedLongitude = userLocation!.longitude;
           });
 
+          // close the stream first
           if (positionStream2 != null) {
             positionStream2!.cancel();
           }
@@ -223,6 +298,28 @@ class _LocationScreenState extends State<LocationScreen> {
             clockStatus = "In";
           });
         } else {
+          if (positionStream2 != null) {
+            positionStream2!.cancel();
+          }
+
+          setState(() {
+            locationSettings = AndroidSettings(
+                accuracy: LocationAccuracy.high,
+                distanceFilter: 100,
+                forceLocationManager: true,
+                intervalDuration: const Duration(seconds: 10),
+                //(Optional) Set foreground notification config to keep the app alive
+                //when going to the background
+                foregroundNotificationConfig:
+                    const ForegroundNotificationConfig(
+                  notificationText:
+                      "This app will continue to receive your location",
+                  notificationTitle: "Running in Background",
+                  enableWakeLock: true,
+                ));
+
+            LocationServices(locationSettings);
+          });
           setState(() {
             clockedLatitude = null;
             clockedLongitude = null;
@@ -270,6 +367,7 @@ class _LocationScreenState extends State<LocationScreen> {
             Text('Clocked In Latitude: ' + clockedLatitude.toString()),
             Text('Clocked In Longitude: ' + clockedLongitude.toString()),
             Text('Status: Clock $clockStatus'),
+            Text('Mock Location Status: $ismock'),
           ],
         ),
       ),
@@ -282,6 +380,14 @@ class UserLocation {
   final double longitude;
 
   UserLocation(this.latitude, this.longitude);
+}
+
+class RegionLocation {
+  final double regionLatitude;
+  final double regionLongitude;
+  final int regionRadius;
+
+  RegionLocation(this.regionLatitude, this.regionLongitude, this.regionRadius);
 }
 
 class Noti {
